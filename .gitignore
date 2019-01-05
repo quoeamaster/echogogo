@@ -10,3 +10,12 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# dep's lock file, toml should be included instead
+# Gopkg.lock
+
+# dep vendor libraries
+vendor/*
+
+# the default executable
+echogogo*
