@@ -19,3 +19,7 @@ vendor/*
 
 # the default executable
 echogogo*
+
+# sample config file
+sampleConfig.json
+

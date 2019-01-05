@@ -19,40 +19,36 @@
 package main
 
 import (
-	"gopkg.in/urfave/cli.v1"
-	"log"
+	"encoding/json"
+	"io/ioutil"
 	"os"
 )
 
-/**
- *	main method to kick start the echogogo server
- */
-func main()  {
-	echoSrv := cli.NewApp()
-	echoSrv.Name = "echogogo server"
-	echoSrv.Usage = "main entry point of echogogo server"
-	echoSrv.Author = "Jason.Wong"
-	echoSrv.Version = "1.0.0"
-	echoSrv.Flags = []cli.Flag {
-		cli.StringFlag{
-			Name: "config, C",
-			EnvVar: "envVarEchogogoConfig",
-			Usage: "provide a targeted configuration file to startup the server. Can also use the environment-variable: ",
-		},
-	}
-
-	echoSrv.Action = func(ctx *cli.Context) error {
-		srvPtr := new(Server)
-		srvPtr.configFile = ctx.String("C")
-		err := srvPtr.StartServer()
-
-		return err
-	}
-
-	err := echoSrv.Run(os.Args)
-	if err != nil {
-		log.Fatal(err)
-	}
+type ConfigContent struct {
+	ModuleRepositoryLocation string `json:"moduleRepositoryLocation" description:"location to find the module(s)"`
 }
 
+
+// method to load config content based on the given configuration file location
+func LoadConfigContent(cfgFile string) (*ConfigContent, error) {
+	content, err := os.Open(cfgFile)
+	defer func() {
+		content.Close()
+	}()
+	if err != nil {
+		return nil, err
+	}
+	bArrContent, err := ioutil.ReadAll(content)
+	if err != nil {
+		return nil, err
+	}
+
+	var configContent ConfigContent
+	err = json.Unmarshal(bArrContent, &configContent)
+	if err != nil {
+		return nil, err
+	} else {
+		return &configContent, nil
+	}
+}
 

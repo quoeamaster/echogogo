@@ -18,41 +18,32 @@
  */
 package main
 
-import (
-	"gopkg.in/urfave/cli.v1"
-	"log"
-	"os"
-)
+import "fmt"
 
-/**
- *	main method to kick start the echogogo server
- */
-func main()  {
-	echoSrv := cli.NewApp()
-	echoSrv.Name = "echogogo server"
-	echoSrv.Usage = "main entry point of echogogo server"
-	echoSrv.Author = "Jason.Wong"
-	echoSrv.Version = "1.0.0"
-	echoSrv.Flags = []cli.Flag {
-		cli.StringFlag{
-			Name: "config, C",
-			EnvVar: "envVarEchogogoConfig",
-			Usage: "provide a targeted configuration file to startup the server. Can also use the environment-variable: ",
-		},
+type Server struct {
+	configFile        string
+	configContentJson ConfigContent
+}
+
+// method to start the echo server
+func (srv *Server) StartServer() error {
+	// load the config file contents if valid
+	if srv.configFile == "" {
+		fmt.Printf("using default module repository location\n")
+
+	} else {
+		val, err := LoadConfigContent(srv.configFile)
+		if err != nil {
+			return err
+		}
+		srv.configContentJson = ConfigContent(*val)
+		// fmt.Printf("%v\n", srv.configContentJson.ModuleRepositoryLocation)
 	}
+	return nil
+}
 
-	echoSrv.Action = func(ctx *cli.Context) error {
-		srvPtr := new(Server)
-		srvPtr.configFile = ctx.String("C")
-		err := srvPtr.StartServer()
-
-		return err
-	}
-
-	err := echoSrv.Run(os.Args)
-	if err != nil {
-		log.Fatal(err)
-	}
+func (srv *Server) StopServer() error {
+	return nil
 }
 
 
