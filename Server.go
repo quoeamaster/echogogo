@@ -18,8 +18,6 @@
  */
 package main
 
-import "fmt"
-
 type Server struct {
 	configFile        string
 	configContentJson ConfigContent
@@ -29,7 +27,9 @@ type Server struct {
 func (srv *Server) StartServer() error {
 	// load the config file contents if valid
 	if srv.configFile == "" {
-		fmt.Printf("using default module repository location\n")
+		cModelPtr := new(ConfigContent)
+		cModelPtr.ModuleRepositoryLocation = "modules"
+		srv.configContentJson = *cModelPtr
 
 	} else {
 		val, err := LoadConfigContent(srv.configFile)
@@ -39,6 +39,8 @@ func (srv *Server) StartServer() error {
 		srv.configContentJson = ConfigContent(*val)
 		// fmt.Printf("%v\n", srv.configContentJson.ModuleRepositoryLocation)
 	}
+	// TODO: load the module(s) available in the folder (load all files with suffix .so)
+
 	return nil
 }
 
