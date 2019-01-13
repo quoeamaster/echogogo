@@ -42,13 +42,23 @@ type EchoModule struct {
 }
 
 
-// ctor
+// ctor. Create instance of *Server
 func NewServer(configFile string) *Server {
 	srv := new(Server)
 	srv.configFile = configFile
 	srv.modules = make(map[string]*EchoModule)
 
 	return srv
+}
+
+// ctor. Create instance of *EchoModule
+func NewEchoModule(modulePtr *plugin.Plugin, symGetRestConfig plugin.Symbol, symDoAction plugin.Symbol) *EchoModule {
+	modPtr := new(EchoModule)
+	modPtr.ModulePtr = modulePtr
+	modPtr.FxGetRestConfig = symGetRestConfig
+	modPtr.FxDoAction = symDoAction
+
+	return modPtr
 }
 
 // method to start the echo server
@@ -134,13 +144,16 @@ func (srv *Server) _loadModule(modulePath string) (*EchoModule, error) {
 	if err != nil {
 		return nil, err
 	}
-	// everything is good
-	/*	TODO: can create a NewEchoModule() instead */
-	echoModPtr := new(EchoModule)
-	echoModPtr.ModulePtr = modulePtr
-	echoModPtr.FxDoAction = symDoAction
-	echoModPtr.FxGetRestConfig = symGetRestConfig
-
+	// everything is good, setup the REST module now
+	echoModPtr := NewEchoModule(modulePtr, symGetRestConfig, symDoAction)
+	err = srv._setupRestForModule(echoModPtr)
+	if err != nil {
+		return nil, err
+	}
 	return echoModPtr, nil
 }
 
+func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
+	// TODO: add back the logic to update the rest api module
+	return nil
+}
