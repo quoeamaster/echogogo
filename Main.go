@@ -42,8 +42,11 @@ func main()  {
 	}
 
 	echoSrv.Action = func(ctx *cli.Context) error {
+		srvPtr := NewServer(ctx.String("C"))
+		/*
 		srvPtr := new(Server)
 		srvPtr.configFile = ctx.String("C")
+		*/
 		err := srvPtr.StartServer()
 
 		return err
