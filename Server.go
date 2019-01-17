@@ -20,6 +20,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/emicklei/go-restful"
 	"io/ioutil"
 	"os"
 	"plugin"
@@ -39,6 +40,7 @@ type EchoModule struct {
 	ModulePtr 			*plugin.Plugin
 	FxGetRestConfig 	plugin.Symbol
 	FxDoAction 			plugin.Symbol
+	ModulePath			string
 }
 
 
@@ -52,11 +54,12 @@ func NewServer(configFile string) *Server {
 }
 
 // ctor. Create instance of *EchoModule
-func NewEchoModule(modulePtr *plugin.Plugin, symGetRestConfig plugin.Symbol, symDoAction plugin.Symbol) *EchoModule {
+func NewEchoModule(modulePtr *plugin.Plugin, symGetRestConfig plugin.Symbol, symDoAction plugin.Symbol, modulePath string) *EchoModule {
 	modPtr := new(EchoModule)
 	modPtr.ModulePtr = modulePtr
 	modPtr.FxGetRestConfig = symGetRestConfig
 	modPtr.FxDoAction = symDoAction
+	modPtr.ModulePath = modulePath
 
 	return modPtr
 }
@@ -105,8 +108,13 @@ func (srv *Server) loadModulesFromRepos() error {
 			return err
 		}
 		srv.modules[matchedModule.Name()] = modulePtr
+		// setup the REST api
+		err = srv._setupRestForModule(modulePtr)
+		if err != nil {
+			return err
+		}
 	}
-	fmt.Printf("map content => %v\n", srv.modules)
+	fmt.Printf("modules content => %v\n", srv.modules)
 	return nil
 }
 
@@ -145,15 +153,21 @@ func (srv *Server) _loadModule(modulePath string) (*EchoModule, error) {
 		return nil, err
 	}
 	// everything is good, setup the REST module now
-	echoModPtr := NewEchoModule(modulePtr, symGetRestConfig, symDoAction)
-	err = srv._setupRestForModule(echoModPtr)
-	if err != nil {
-		return nil, err
-	}
+	echoModPtr := NewEchoModule(modulePtr, symGetRestConfig, symDoAction, modulePath)
+
 	return echoModPtr, nil
 }
 
 func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
+	ws := new(restful.WebService)
+	configMap := echoModPtr.FxGetRestConfig.(func() map[string]interface{})()
+
+	fmt.Printf("config returned => %v\n", configMap)
+	ws.Path(configMap["path"].(string))
+	// set endpoints too...
+
+
+
 	// TODO: add back the logic to update the rest api module
 	return nil
 }
