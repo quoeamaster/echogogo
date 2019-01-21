@@ -38,6 +38,9 @@ type Server struct {
 	configContentJson	ConfigContent
 
 	modules 			map[string]*EchoModule
+
+	logConfig 			LogConfig
+	logger 				Logger
 }
 
 // structure for a valid Echo-module
@@ -57,6 +60,13 @@ func NewServer(configFile string) *Server {
 	srv.configFile = configFile
 	srv.modules = make(map[string]*EchoModule)
 
+	srv.logConfig = *new(LogConfig)
+	srv.logConfig.DefaultLevel = LogLevelInfo
+	srv.logConfig.DefaultFuncName = "StartServer"
+	srv.logConfig.Filename = "Server"
+
+	srv.logger = NewLogger(LogLevelInfo)
+
 	return srv
 }
 
@@ -73,6 +83,7 @@ func NewEchoModule(modulePtr *plugin.Plugin, symGetRestConfig plugin.Symbol, sym
 
 // method to start the echo server
 func (srv *Server) StartServer() error {
+	srv.logger.LogWithFuncName("bootstrapping SERVER...", "StartServer", srv.logConfig)
 	// load the config file contents if valid
 	if srv.configFile == "" {
 		cModelPtr := new(ConfigContent)
@@ -93,6 +104,7 @@ func (srv *Server) StartServer() error {
 		return err
 	}
 
+	srv.logger.LogWithFuncName("SERVER started at port 8001", "", srv.logConfig)
 	return http.ListenAndServe(":8001", nil)
 }
 
@@ -106,6 +118,8 @@ func (srv *Server) loadModulesFromRepos() error {
 	if err != nil {
 		return err
 	}
+	srv.logger.LogWithFuncName("searching MODULE(s) to bootstrap...", "loadModulesFromRepos", srv.logConfig)
+
 	// load the modules through plugin api
 	for _, matchedModule := range matchedModulesSlice {
 		matchedModulePath := fmt.Sprintf("%v/%v", srv.configContentJson.ModuleRepositoryLocation, matchedModule.Name())
@@ -120,8 +134,8 @@ func (srv *Server) loadModulesFromRepos() error {
 		if err != nil {
 			return err
 		}
+		srv.logger.LogWithFuncName(fmt.Sprintf("bootstrapped module - %v", matchedModule.Name()), "loadModulesFromRepos", srv.logConfig)
 	}
-// fmt.Printf("modules content => %v\n", srv.modules)
 	return nil
 }
 
@@ -181,6 +195,7 @@ func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
 	if err != nil {
 		return err
 	}
+	srv.logger.Log(fmt.Sprintf("MODULE - %v mapped to %v successfully", echoModPtr.ModulePath, echoModPtr.WebservicePath), LogLevelDebug, "Server", "loadModulesFromRepos")
 	return nil
 }
 
