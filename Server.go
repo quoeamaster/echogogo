@@ -19,11 +19,16 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"github.com/emicklei/go-restful"
+	"github.com/quoeamaster/echogogo_plugin"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"plugin"
+	"reflect"
 	"strings"
 )
 
@@ -41,6 +46,8 @@ type EchoModule struct {
 	FxGetRestConfig 	plugin.Symbol
 	FxDoAction 			plugin.Symbol
 	ModulePath			string
+
+	WebservicePath		string
 }
 
 
@@ -86,7 +93,7 @@ func (srv *Server) StartServer() error {
 		return err
 	}
 
-	return nil
+	return http.ListenAndServe(":8001", nil)
 }
 
 func (srv *Server) StopServer() error {
@@ -114,7 +121,7 @@ func (srv *Server) loadModulesFromRepos() error {
 			return err
 		}
 	}
-	fmt.Printf("modules content => %v\n", srv.modules)
+// fmt.Printf("modules content => %v\n", srv.modules)
 	return nil
 }
 
@@ -161,13 +168,191 @@ func (srv *Server) _loadModule(modulePath string) (*EchoModule, error) {
 func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
 	ws := new(restful.WebService)
 	configMap := echoModPtr.FxGetRestConfig.(func() map[string]interface{})()
+	// fmt.Printf("config returned => %v\n", configMap)
 
-	fmt.Printf("config returned => %v\n", configMap)
-	ws.Path(configMap["path"].(string))
+	webservicePath := configMap["path"].(string)
+	echoModPtr.WebservicePath = webservicePath
+	ws.Path(webservicePath)
+
+	ws = srv._setWebserviceFormat(configMap["consumeFormat"].(string), ws, true)
+	ws = srv._setWebserviceFormat(configMap["produceFormat"].(string), ws, false)
 	// set endpoints too...
-
-
-
-	// TODO: add back the logic to update the rest api module
+	ws, err := srv._setWebserviceEndPoints(configMap["endPoints"].([]string), ws)
+	if err != nil {
+		return err
+	}
 	return nil
+}
+
+// method to set the consume and produce format for this WebService
+func (srv *Server) _setWebserviceFormat(format string, ws *restful.WebService, isConsume bool) *restful.WebService {
+	switch format {
+	case echogogo.FORMAT_JSON:
+		if isConsume == true {
+			ws.Consumes(restful.MIME_JSON)
+		} else {
+			ws.Produces(restful.MIME_JSON)
+		}
+	case echogogo.FORMAT_XML:
+		if isConsume == true {
+			ws.Consumes(restful.MIME_XML)
+		} else {
+			ws.Produces(restful.MIME_XML)
+		}
+	case echogogo.FORMAT_XML_JSON:
+		if isConsume == true {
+			ws.Consumes(restful.MIME_XML, restful.MIME_JSON)
+		} else {
+			ws.Produces(restful.MIME_XML, restful.MIME_JSON)
+		}
+	default:
+		if isConsume == true {
+			ws.Consumes(restful.MIME_XML, restful.MIME_JSON)
+		} else {
+			ws.Produces(restful.MIME_XML, restful.MIME_JSON)
+		}
+	}
+	return ws
+}
+
+func (srv *Server) _setWebserviceEndPoints(endpoints []string, ws *restful.WebService) (ws1 *restful.WebService, err error) {
+	ws1 = ws
+	err = nil
+
+	defer func() {
+		if r:=recover(); r!=nil {
+			// catch all unexpected panic(s) and transform it into an Error instead (keep execution of the routine)
+			err = fmt.Errorf("exception in setting webservice endpoints: %v\n", r)
+		}
+	}()
+
+	if endpoints == nil {
+		err = errors.New("endpoints missing! ")
+		return ws1, err
+	}
+
+	for _, endpoint := range endpoints {
+		// extract http action / verb and the target path
+		parts := strings.Split(endpoint, "::")
+		if len(parts) == 2 {
+			switch parts[0] {
+			case "PUT":
+				ws1 = ws1.Route(ws1.PUT(parts[1]).To(srv._webserviceActionRouter))
+			case "POST":
+				ws1 = ws1.Route(ws1.POST(parts[1]).To(srv._webserviceActionRouter))
+			case "DELETE":
+				ws1 = ws1.Route(ws1.DELETE(parts[1]).To(srv._webserviceActionRouter))
+			case "GET":
+				ws1 = ws1.Route(ws1.GET(parts[1]).To(srv._webserviceActionRouter))
+			default:
+				ws1 = ws1.Route(ws1.GET(parts[1]).To(srv._webserviceActionRouter))
+			}
+		} else {
+			err = fmt.Errorf("invalid endpoint, format for a valid endpoint is [http_verb]::[target_path] (e.g. GET::/hobby ) => %v\n", endpoint)
+		}
+	}
+	restful.Add(ws1)
+
+	return ws1, err
+}
+
+// router-like method to intercept every module's DoAction method; prepare the
+// request, response and endPoint value for the corresponding DoAction()
+func (srv *Server) _webserviceActionRouter(request *restful.Request, response *restful.Response) {
+	routePath := request.SelectedRoutePath()
+	parts := strings.Split(routePath, "/")
+	if len(parts) > 1 {
+		// 1st element is "", 2nd element is the module-path (we need this to clarify which module's DoAction method to invoke
+		targetModule := "/" + parts[1]
+		for _, modulePtr := range srv.modules {
+			if modulePtr.WebservicePath == targetModule {
+				// invoke the DoAction()
+				model := modulePtr.FxDoAction.(func(http.Request, string, ...map[string]interface{}) interface{})(
+					*request.Request, targetModule, nil)
+				// fmt.Printf("model => %v\n", model)
+
+				switch model.(type) {
+				case error:
+					// panic or just printf?
+					panic(model)
+				}
+				// based on the response... create the output in either json (default) or xml
+				isHandled := false
+				for idx := 1; idx < len(parts); idx++ {
+					if parts[idx] == "json" {
+						if err := response.WriteAsJson(model); err != nil {
+							fmt.Printf("%v\n", err)
+						}
+						isHandled = true
+						break
+					} else if parts[idx] == "xml" {
+						xml := srv._marshalInterface2XmlString(model)
+						response.Header().Add("Content-Type", "application/xml")
+						if _, err := response.Write([]byte(xml)); err != nil {
+							fmt.Printf("%v\n", err)
+						}
+						isHandled = true
+						break
+					}
+				}
+				if !isHandled {
+					if err := response.WriteAsJson(model); err != nil {
+						fmt.Printf("%v\n", err)
+					}
+				}
+				break	// end - break of (invoke a Matched echo module)
+			}
+		}	// end -- for (modules)
+	} else {
+		if err := response.WriteAsJson(fmt.Sprintf("unknown route path => %v\n", routePath)); err != nil {
+			// logging
+			fmt.Printf("%v\n", err)
+		}
+	}
+}
+
+// method to marshal interface{} into xml string
+/* TODO: move to a util package later... */
+func (srv *Server) _marshalInterface2XmlString(model interface{}) (xmlString string) {
+	xmlString = ""
+	var buffer bytes.Buffer
+	if model == nil {
+		return
+	}
+
+	switch model.(type) {
+	case map[string]string:
+		fModel := model.(map[string]string)
+		buffer.WriteString("<response>")
+		for key, value := range fModel {
+			buffer.WriteString(fmt.Sprintf("<%v>%v</%v>", key, value, key))
+		}
+		buffer.WriteString("</response>")
+	case map[string]interface{}:
+		fModel := model.(map[string]interface{})
+		buffer.WriteString("<response>")
+		for key, value := range fModel {
+			buffer.WriteString(fmt.Sprintf("<%v>%v</%v>", key, value, key))
+		}
+		buffer.WriteString("</response>")
+	default:
+		// treat as struct like object...
+		modelType := reflect.TypeOf(model)
+		modelValue := reflect.ValueOf(model)
+		// fmt.Printf("$ %v \n", modelType)
+		// fmt.Printf("* %v \n", modelValue)
+		// fmt.Printf("%%% %v \n", modelType.NumField())
+
+		buffer.WriteString("<response>")
+		for idx := 0; idx < modelType.NumField(); idx++ {
+			field := modelType.Field(idx)
+			// fmt.Printf("field (%v); type (%v); value (%v)  \n", field.Name, field.Type, modelValue.FieldByName(field.Name))
+			buffer.WriteString(fmt.Sprintf("<%v>%v</%v>", field.Name, modelValue.FieldByName(field.Name), field.Name))
+		}
+		buffer.WriteString("</response>")
+	}
+	if buffer.Len() > 0 {
+		xmlString = buffer.String()
+	}
+	return
 }
