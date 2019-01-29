@@ -2,15 +2,15 @@
 
 
 [[projects]]
-  digest = "1:899234af23e5793c34e06fd397f86ba33af5307b959b6a7afd19b63db065a9d7"
+  digest = "1:9f6d41e901cde897bad4569877c96c9cacee67c9c6ede2794c515371c954cb6a"
   name = "github.com/emicklei/go-restful"
   packages = [
     ".",
     "log",
   ]
   pruneopts = "UT"
-  revision = "3eb9738c1697594ea6e71a7156a9bb32ed216cf0"
-  version = "v2.8.0"
+  revision = "e37671aced663c8d3a395bd301857e26dcf4340c"
+  version = "v2.8.1"
 
 [[projects]]
   digest = "1:3e551bbb3a7c0ab2a2bf4660e7fcad16db089fdcfbb44b0199e62838038623ea"
@@ -38,11 +38,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:fd0eaf571b65f6eec0400fbb12070813f7b4d2d081ed13543cc19333651823cb"
+  digest = "1:83850116d98ab8e178e4a1695e9e76aaca4294d6c90a859cd03b3e980b98acdb"
   name = "github.com/quoeamaster/echogogo_plugin"
   packages = ["."]
   pruneopts = "UT"
-  revision = "f191f200d93315b50d0c88b1e70942a20fd5b119"
+  revision = "a99cb89b5e7e74cba8f2e033365751d71db5f30c"
 
 [[projects]]
   digest = "1:b24d38b282bacf9791408a080f606370efa3d364e4b5fd9ba0f7b87786d3b679"

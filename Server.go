@@ -81,6 +81,8 @@ func NewEchoModule(modulePtr *plugin.Plugin, symGetRestConfig plugin.Symbol, sym
 	return modPtr
 }
 
+// TODO: test on running multiple "modules" e.g. echo + mock
+
 // method to start the echo server
 func (srv *Server) StartServer() error {
 	srv.logger.LogWithFuncName("bootstrapping SERVER...", "StartServer", srv.logConfig)
@@ -361,8 +363,10 @@ func (srv *Server) _marshalInterface2XmlString(model interface{}) (xmlString str
 		buffer.WriteString("<response>")
 		for idx := 0; idx < modelType.NumField(); idx++ {
 			field := modelType.Field(idx)
-			// fmt.Printf("field (%v); type (%v); value (%v)  \n", field.Name, field.Type, modelValue.FieldByName(field.Name))
-			buffer.WriteString(fmt.Sprintf("<%v>%v</%v>", field.Name, modelValue.FieldByName(field.Name), field.Name))
+			if field.Name[0:1] != strings.ToLower(field.Name[0:1]) {
+				// public / exported field
+				buffer.WriteString(fmt.Sprintf("<%v>%v</%v>", field.Name, modelValue.FieldByName(field.Name), field.Name))
+			}	// end -- if (only public / exported field(s) should be shown)
 		}
 		buffer.WriteString("</response>")
 	}
