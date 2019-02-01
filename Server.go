@@ -101,13 +101,18 @@ func (srv *Server) StartServer() error {
 		// fmt.Printf("%v\n", srv.configContentJson.ModuleRepositoryLocation)
 	}
 	// load the module(s) available in the folder (load all files with suffix .so)
-	err := srv.loadModulesFromRepos()
+	err, wsContainerPtr := srv.loadModulesFromRepos()
 	if err != nil {
 		return err
 	}
+	// setup CORS for the wsContainer
+	srv.setupCors(wsContainerPtr)
 
 	srv.logger.LogWithFuncName("SERVER started at port 8001", "", srv.logConfig)
-	return http.ListenAndServe(":8001", nil)
+	// setup server
+	wsServer := &http.Server{ Addr: ":8001", Handler: wsContainerPtr }
+	return wsServer.ListenAndServe()
+	//return http.ListenAndServe(":8001", nil)
 }
 
 func (srv *Server) StopServer() error {
@@ -115,10 +120,12 @@ func (srv *Server) StopServer() error {
 }
 
 // load the files / modules within the given repo; modules have a suffix of "so"
-func (srv *Server) loadModulesFromRepos() error {
+func (srv *Server) loadModulesFromRepos() (error, *restful.Container) {
+	wsContainerPtr := restful.NewContainer()
+
 	matchedModulesSlice, err := srv._getModuleFileInfosFromRepos()
 	if err != nil {
-		return err
+		return err, nil
 	}
 	srv.logger.LogWithFuncName("searching MODULE(s) to bootstrap...", "loadModulesFromRepos", srv.logConfig)
 
@@ -128,17 +135,34 @@ func (srv *Server) loadModulesFromRepos() error {
 		modulePtr, err := srv._loadModule(matchedModulePath)
 		if err != nil {
 			/*	TODO: should ignore this unloaded module OR exit? (default is exit if any module can't be LOADED)  */
-			return err
+			return err, nil
 		}
 		srv.modules[matchedModule.Name()] = modulePtr
 		// setup the REST api
-		err = srv._setupRestForModule(modulePtr)
+		err = srv._setupRestForModule(modulePtr, wsContainerPtr)
 		if err != nil {
-			return err
+			return err, nil
 		}
 		srv.logger.LogWithFuncName(fmt.Sprintf("bootstrapped module - %v", matchedModule.Name()), "loadModulesFromRepos", srv.logConfig)
 	}
-	return nil
+	return nil, wsContainerPtr
+}
+
+// setup the CORS for the webservice container
+func (srv *Server) setupCors(wsContainer *restful.Container) {
+	// TODO: the allowedDomains should be configured by some ways... (config file etc)
+	cors := restful.CrossOriginResourceSharing{
+		// ExposeHeaders:  []string{"X-My-Header"},
+		AllowedHeaders: []string{ "Content-Type", "Accept" },
+		AllowedMethods: []string{ "PUT", "POST", "DELETE", "GET" },
+		AllowedDomains: []string{ "*" },
+		CookiesAllowed: false,
+		Container: wsContainer,
+	}
+	wsContainer.Filter(wsContainer.OPTIONSFilter)
+	wsContainer.Filter(cors.Filter)
+
+	srv.logger.LogWithFuncName(fmt.Sprintf("cors feature configured on SERVER"), "setupCors", srv.logConfig)
 }
 
 // method to get all files in the repository and then filter valid module files out (suffix of .so)
@@ -181,7 +205,7 @@ func (srv *Server) _loadModule(modulePath string) (*EchoModule, error) {
 	return echoModPtr, nil
 }
 
-func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
+func (srv *Server) _setupRestForModule(echoModPtr *EchoModule, wsContainerPtr *restful.Container) error {
 	ws := new(restful.WebService)
 	configMap := echoModPtr.FxGetRestConfig.(func() map[string]interface{})()
 	// fmt.Printf("config returned => %v\n", configMap)
@@ -197,6 +221,9 @@ func (srv *Server) _setupRestForModule(echoModPtr *EchoModule) error {
 	if err != nil {
 		return err
 	}
+	// add the valid WebService module to the container
+	wsContainerPtr.Add(ws)
+
 	srv.logger.Log(fmt.Sprintf("MODULE - %v mapped to %v successfully", echoModPtr.ModulePath, echoModPtr.WebservicePath), LogLevelDebug, "Server", "loadModulesFromRepos")
 	return nil
 }
@@ -268,7 +295,8 @@ func (srv *Server) _setWebserviceEndPoints(endpoints []string, ws *restful.WebSe
 			err = fmt.Errorf("invalid endpoint, format for a valid endpoint is [http_verb]::[target_path] (e.g. GET::/hobby ) => %v\n", endpoint)
 		}
 	}
-	restful.Add(ws1)
+	// ** instead of adding the WebService directly... add to a WebService Container later on...
+	//restful.Add(ws1)
 
 	return ws1, err
 }
@@ -276,6 +304,11 @@ func (srv *Server) _setWebserviceEndPoints(endpoints []string, ws *restful.WebSe
 // router-like method to intercept every module's DoAction method; prepare the
 // request, response and endPoint value for the corresponding DoAction()
 func (srv *Server) _webserviceActionRouter(request *restful.Request, response *restful.Response) {
+	// cleanup
+	defer func() {
+		request.Request.Body.Close()
+	}()
+
 	routePath := request.SelectedRoutePath()
 	parts := strings.Split(routePath, "/")
 	if len(parts) > 1 {
@@ -290,28 +323,32 @@ func (srv *Server) _webserviceActionRouter(request *restful.Request, response *r
 
 				switch model.(type) {
 				case error:
-					// panic or just printf?
+					// TODO: panic or just printf?
 					panic(model)
 				}
 				// based on the response... create the output in either json (default) or xml
 				isHandled := false
 				for idx := 1; idx < len(parts); idx++ {
 					if parts[idx] == "json" {
+						// add back CORS header(s)
+						srv.setCorsHeaders(request.Request, response)
 						if err := response.WriteAsJson(model); err != nil {
 							fmt.Printf("%v\n", err)
 						}
 						isHandled = true
 						break
 					} else if parts[idx] == "xml" {
-						xml := srv._marshalInterface2XmlString(model)
-						response.Header().Add("Content-Type", "application/xml")
+						xml := srv.marshalInterface2XmlString(model)
+						// add back CORS header(s)
+						srv.setCorsHeaders(request.Request, response)
+						response.AddHeader("Content-Type", "application/xml")
 						if _, err := response.Write([]byte(xml)); err != nil {
 							fmt.Printf("%v\n", err)
 						}
 						isHandled = true
 						break
 					}
-				}
+				}	// end -- for (parts - check request type => json or xml etc)
 				if !isHandled {
 					if err := response.WriteAsJson(model); err != nil {
 						fmt.Printf("%v\n", err)
@@ -328,9 +365,19 @@ func (srv *Server) _webserviceActionRouter(request *restful.Request, response *r
 	}
 }
 
+func (srv *Server) setCorsHeaders(request *http.Request, response *restful.Response) {
+	/* once CORS is working.. all request type(s) need to add back the Header(s)
+	if request.Method != "GET" && request.Method != "POST" && request.Method != "HEAD" {
+		response.Header.Add("Access-Control-Allow-Origin", request.Header.Get("Origin"))
+	}
+	*/
+	response.AddHeader("Access-Control-Allow-Origin", request.Header.Get("Origin"))
+	//fmt.Printf("%v \n", request.Method)
+}
+
 // method to marshal interface{} into xml string
 /* TODO: move to a util package later... */
-func (srv *Server) _marshalInterface2XmlString(model interface{}) (xmlString string) {
+func (srv *Server) marshalInterface2XmlString(model interface{}) (xmlString string) {
 	xmlString = ""
 	var buffer bytes.Buffer
 	if model == nil {
